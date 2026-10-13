@@ -34,6 +34,9 @@ public class AutoTableCreateService implements CommandLineRunner {
     @Value("${tablecreate.target.tables:}")
     private String targetTableName;
 
+    @Value("${tablecreate.target.reference-table:}")
+    private String referenceTableName;
+
     @Autowired
     private  TableCreateService tableCreateService;
     @Override
@@ -70,16 +73,21 @@ public class AutoTableCreateService implements CommandLineRunner {
         }
         targetTableName=targetTableName.replace("\\{","{").replace("\\}", "}");
         List<String> tableNames= Arrays.asList(targetTableName.split(","));
+        String globalReferenceTableName=StringUtil.isBlank(referenceTableName)?"":referenceTableName.trim();
         List<String> result=new ArrayList<>();
         tableNames.forEach((tableNameConfig)->{
             String tableName=tableNameConfig.trim();
-            String referenceTableName="";
+            String referenceTable="";
             if(tableName.contains(split)){
                 String[] parts=tableName.split(split,2);
                 tableName=parts[0].trim();
-                referenceTableName=parts[1].trim();
+                referenceTable=parts[1].trim();
             }
-            result.addAll(tableCreateService.createTable(tableName,startDate,endDate,referenceTableName));
+            // 表名内联指定优先, 其次使用全局配置 tablecreate.target.reference-table, 都为空则自动取最大月表
+            if(StringUtil.isBlank(referenceTable)){
+                referenceTable=globalReferenceTableName;
+            }
+            result.addAll(tableCreateService.createTable(tableName,startDate,endDate,referenceTable));
         });
         log.info("{} auto create tables:{}",LOG_TITLE, StringUtil.join(result.iterator(),","));
         return result;

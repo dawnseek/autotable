@@ -2,13 +2,13 @@
 select table_name from information_schema.tables where table_schema=? and upper(table_name) like ?
 
 [query_table_create]
-CREATE table ${targetTable} as table ${tablename}
+CREATE TABLE ${targetTable} (LIKE ${structureTable} INCLUDING ALL)
 
-[query_table_indexes]
-SELECT i.indexname as index_name, indisunique, indisprimary, ai.attname as column_name FROM pg_tables t JOIN pg_namespace n ON t.schemaname = n.nspname LEFT JOIN pg_indexes i ON t.schemaname = i.schemaname AND t.tablename = i.tablename LEFT JOIN pg_class ci ON i.indexname = ci.relname AND n.oid = ci.relnamespace LEFT JOIN pg_index ii ON ci.oid = ii.indexrelid LEFT JOIN pg_attribute ai ON ci.oid = ai.attrelid WHERE t.schemaname = ? and upper(t.tablename) = ? ORDER BY t.tablename, i.indexname, ai.attname
+[query_table_sequences]
+SELECT DISTINCT a.attname AS column_name FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid JOIN pg_catalog.pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum WHERE upper(c.relname) = ? AND n.nspname = ? AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped AND pg_catalog.pg_get_expr(ad.adbin, ad.adrelid) LIKE 'nextval(%'
+
+[query_table_foreign_keys]
+SELECT con.conname AS constraint_name, pg_catalog.pg_get_constraintdef(con.oid) AS constraint_def FROM pg_catalog.pg_constraint con JOIN pg_catalog.pg_class c ON c.oid = con.conrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE con.contype = 'f' AND upper(c.relname) = ? AND n.nspname = ?
 
 [query_table_triggers]
-SELECT TRIGGER_NAME FROM information_schema.triggers WHERE TRIGGER_SCHEMA = ? AND upper(EVENT_OBJECT_TABLE) = ?;
-
-[query_table_trigger_create]
-SHOW CREATE TRIGGER ${triggerName};
+SELECT t.tgname AS trigger_name, pg_catalog.pg_get_triggerdef(t.oid) AS trigger_def FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE upper(c.relname) = ? AND n.nspname = ? AND NOT t.tgisinternal

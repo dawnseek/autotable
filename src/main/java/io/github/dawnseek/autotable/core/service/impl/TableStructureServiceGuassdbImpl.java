@@ -5,8 +5,10 @@ import io.github.dawnseek.autotable.core.domain.TableInfo;
 import io.github.dawnseek.autotable.core.helper.DbTypeHelper;
 import io.github.dawnseek.autotable.core.helper.SqlLoader;
 import io.github.dawnseek.autotable.core.service.TableStructureService;
+import io.github.dawnseek.autotable.core.utils.DbUtil;
 import io.github.dawnseek.autotable.core.utils.MapUtil;
 import io.github.dawnseek.autotable.core.utils.StringUtil;
+import io.github.dawnseek.autotable.core.utils.UuidUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -15,7 +17,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -29,8 +31,6 @@ import java.util.stream.Collectors;
 @Service("table-structure-guassdb")
 public class TableStructureServiceGuassdbImpl implements TableStructureService {
     private final static String LOG_TITLE="【auto create table:GUASSDB】";
-    private final static String TABLE_SUFFIX_RGX="(_)([1-2][0-9]{5})";
-    private final static Pattern TABLE_SUFFIX_PATTERN=Pattern.compile(TABLE_SUFFIX_RGX);
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -49,7 +49,7 @@ public class TableStructureServiceGuassdbImpl implements TableStructureService {
         String tableName = StringUtil.replaceStance(tableInfo.getTableNameExtension(),"%") ;
         //替换sql式内
         Pattern pattern = Pattern.compile(String.format("^%s$",StringUtil.replaceStance(tableInfo.getTableNameExtension(),tableInfo.getSuffixPattern())));
-        List<String> tableList = jdbcTemplate.queryForList(sql(CommonConstant.SQL_QUERY_TABLE_NAMES),schema, tableName).stream().map((a) -> {
+        List<String> tableList = jdbcTemplate.queryForList(sql(CommonConstant.SQL_QUERY_TABLE_NAMES),schema, tableName.toUpperCase()).stream().map((a) -> {
             Map node= MapUtil.toCamelCaseMap(a);
             return node.get("tableName") + "";
         }).filter((a) -> {
@@ -68,9 +68,11 @@ public class TableStructureServiceGuassdbImpl implements TableStructureService {
      */
     @Override
     public List<String> getCreateTableSql(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo) {
-        String createSql = StringUtil.replaceStance(sql(CommonConstant.SQL_QUERY_TABLE_CREATE),createTableName, structureTablename);
+        String targetTable = schema + "." + createTableName;
+        String structureTable = schema + "." + structureTablename;
+        String createTableSql = StringUtil.replaceStance(sql(CommonConstant.SQL_QUERY_TABLE_CREATE), targetTable, structureTable);
         List<String> result=new ArrayList<>();
-        result.add(createSql);
+        result.add(DbUtil.safeSql(createTableSql));
         return result;
     }
     /**
@@ -84,26 +86,8 @@ public class TableStructureServiceGuassdbImpl implements TableStructureService {
      */
     @Override
     public List<String> getCreateIndexSqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo){
-        List<Map<String, Object>> indexs=jdbcTemplate.queryForList(sql(CommonConstant.SQL_QUERY_TABLE_INDEXES),schema,structureTablename);
-        return indexs.stream().map((Map a)->{
-            Map node=MapUtil.toCamelCaseMap(a);
-            String indexName=node.get("indexName")+"";
-            //处理月表后缀
-            indexName=indexName.replaceAll(TABLE_SUFFIX_RGX,"_"+tableSuffix);
-            if(!TABLE_SUFFIX_PATTERN.matcher(indexName).find()){
-                indexName=indexName+"_"+tableSuffix;
-            }
-            String columnName=node.get("columnName")+"";
-            Boolean indisPrimary= (Boolean) Optional.ofNullable(node.get("indisprimary")).orElse(false);
-            Boolean indisunique= (Boolean) Optional.ofNullable(node.get("indisunique")).orElse(false);
-            if(indisPrimary){
-                return String.format("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY (%s)",createTableName,indexName,columnName);
-            }else if(indisunique){
-                return String.format("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s)",createTableName,indexName,columnName);
-            }else{
-                return String.format(" CREATE INDEX %s ON %s (%s);",indexName,createTableName,columnName);
-            }
-        }).collect(Collectors.toList());
+        // guassdb CREATE TABLE (LIKE ... INCLUDING ALL) already copies indexes and constraints
+        return new ArrayList<>();
     }
 
     /**
@@ -116,16 +100,24 @@ public class TableStructureServiceGuassdbImpl implements TableStructureService {
      * @return result
      */
     public List<String> getCreateTriggerSqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo) {
-        List<String> triggerNameList =jdbcTemplate.queryForList(sql(CommonConstant.SQL_QUERY_TABLE_TRIGGERS),schema, structureTablename).stream().map((a) -> {
-            Map node=MapUtil.toCamelCaseMap(a);
-            return a.get("triggerName") + "";
-        }).collect(Collectors.toList());
+        List<Map<String, Object>> triggerRows =jdbcTemplate.queryForList(sql(CommonConstant.SQL_QUERY_TABLE_TRIGGERS), structureTablename.toUpperCase(), schema);
         List<String> createTriggerSqlList = new ArrayList<>();
-        for (String triggerName : triggerNameList) {
-            List<String> createTriggerSqlRowList =jdbcTemplate.queryForList(StringUtil.replaceStance(sql(CommonConstant.SQL_QUERY_TABLE_TRIGGER_CREATE), triggerName)).stream().map((a) -> {
-                return a.get("sql original statement") + "";
-            }).collect(Collectors.toList());
-            createTriggerSqlList.addAll(createTriggerSqlRowList.stream().map((a)->{return a.replaceAll(TABLE_SUFFIX_RGX,""+tableSuffix);}).collect(Collectors.toList()));
+        Pattern suffixPattern = Pattern.compile("");
+        if(StringUtil.isNotBlank(tableSuffix)&&null!=tableInfo){
+            suffixPattern=Pattern.compile(tableInfo.getSuffixPattern());
+        }
+        for (Map<String, Object> triggerRow : triggerRows) {
+            Map<String, Object> node=MapUtil.toCamelCaseMap(triggerRow);
+            String triggerName=node.get(CommonConstant.CNAME_TRIGGER_NAME)+"";
+            String triggerSql=node.get(CommonConstant.CNAME_TRIGGER_DEF)+"";
+            if(suffixPattern.matcher(triggerName).find()){
+                String newTriggerName=triggerName.replaceAll(tableInfo.getSuffixPattern(),tableSuffix);
+                triggerSql=triggerSql.replaceAll(Pattern.quote(triggerName),Matcher.quoteReplacement(newTriggerName));
+            }else{
+                triggerSql=triggerSql.replaceAll(Pattern.quote(triggerName),Matcher.quoteReplacement(String.format("%s_%s",CommonConstant.PREFIX_TRIGGER,UuidUtil.getUuid())));
+            }
+            triggerSql=triggerSql.replaceAll("(?i)"+Pattern.quote(structureTablename),Matcher.quoteReplacement(createTableName));
+            createTriggerSqlList.add(DbUtil.safeSql(triggerSql));
         }
         return createTriggerSqlList;
     }
@@ -140,5 +132,54 @@ public class TableStructureServiceGuassdbImpl implements TableStructureService {
      */
     public List<String> getCreateUniqueSqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo) {
         return new ArrayList<>();
+    }
+
+    /**
+     *  get create sequence sql. CREATE TABLE (LIKE ...) copies the reference nextval default,
+     *  which makes the new table share the reference sequence. Recreate a dedicated sequence
+     *  per target table and rebind the column default.
+     * @param schema db schema
+     * @param structureTablename structure table name
+     * @param createTableName target table name
+     * @param tableSuffix  table suffix
+     * @param tableInfo tableInfo
+     * @return result
+     */
+    public List<String> getCreateSequenceSqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo) {
+        List<Map<String, Object>> sequenceRows = jdbcTemplate.queryForList(sql(CommonConstant.SQL_QUERY_TABLE_SEQUENCES), structureTablename.toUpperCase(), schema);
+        List<String> result = new ArrayList<>();
+        String targetTable = (schema + "." + createTableName).toLowerCase();
+        for (Map<String, Object> sequenceRow : sequenceRows) {
+            Map<String, Object> node = MapUtil.toCamelCaseMap(sequenceRow);
+            String columnName = node.get(CommonConstant.CNAME_COLUMN_NAME) + "";
+            String sequenceName = (schema + "." + createTableName + "_" + columnName + "_seq").toLowerCase();
+            result.add(DbUtil.safeSql(String.format("CREATE SEQUENCE %s", sequenceName)));
+            result.add(DbUtil.safeSql(String.format("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT nextval('%s')", targetTable, columnName, sequenceName)));
+            result.add(DbUtil.safeSql(String.format("ALTER SEQUENCE %s OWNED BY %s.%s", sequenceName, targetTable, columnName)));
+        }
+        return result;
+    }
+
+    /**
+     *  get create foreign key sql. CREATE TABLE (LIKE ...) does not copy foreign keys,
+     *  so they are rebuilt from pg_constraint with a fresh constraint name.
+     * @param schema db schema
+     * @param structureTablename structure table name
+     * @param createTableName target table name
+     * @param tableSuffix  table suffix
+     * @param tableInfo tableInfo
+     * @return result
+     */
+    public List<String> getCreateForeignKeySqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo) {
+        List<Map<String, Object>> foreignKeyRows = jdbcTemplate.queryForList(sql(CommonConstant.SQL_QUERY_TABLE_FOREIGN_KEYS), structureTablename.toUpperCase(), schema);
+        List<String> result = new ArrayList<>();
+        String targetTable = schema + "." + createTableName;
+        for (Map<String, Object> foreignKeyRow : foreignKeyRows) {
+            Map<String, Object> node = MapUtil.toCamelCaseMap(foreignKeyRow);
+            String constraintDef = node.get(CommonConstant.CNAME_CONSTRAINT_DEF) + "";
+            String constraintName = String.format("%s_%s", CommonConstant.PREFIX_FOREIGN_KEY, UuidUtil.getUuid());
+            result.add(DbUtil.safeSql(String.format("ALTER TABLE %s ADD CONSTRAINT %s %s", targetTable, constraintName, constraintDef)));
+        }
+        return result;
     }
 }

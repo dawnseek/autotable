@@ -4,10 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!--
-      Standalone publishable artifact. This project intentionally has NO <parent> so that
-      consumers can resolve it from Maven Central without needing an unpublished parent POM.
-    -->
+
     <groupId>io.github.dawnseek</groupId>
     <artifactId>autotable</artifactId>
     <version>1.6</version>
@@ -41,6 +38,8 @@
     <properties>
         <java.version>8</java.version>
         <spring-boot.version>2.2.8.RELEASE</spring-boot.version>
+        <lombok.version>1.18.44</lombok.version>
+        <gpg.skip>true</gpg.skip>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -67,6 +66,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

@@ -10,4 +10,8 @@ public class TableCreateException extends RuntimeException{
     public TableCreateException(String message) {
         super(message);
     }
+
+    public TableCreateException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

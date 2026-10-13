@@ -63,4 +63,30 @@ public interface TableStructureService {
      * @return result
      */
     List<String> getCreateUniqueSqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo);
+
+    /**
+     *  get create sequence sql (for dialects that clone a table but need a fresh sequence per target table)
+     * @param schema db schema
+     * @param structureTablename structure table name
+     * @param createTableName target table name
+     * @param tableSuffix  table suffix
+     * @param tableInfo tableInfo
+     * @return result
+     */
+    default List<String> getCreateSequenceSqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo){
+        return new java.util.ArrayList<>();
+    }
+
+    /**
+     *  get create foreign key sql (for dialects whose table clone does not copy foreign keys)
+     * @param schema db schema
+     * @param structureTablename structure table name
+     * @param createTableName target table name
+     * @param tableSuffix  table suffix
+     * @param tableInfo tableInfo
+     * @return result
+     */
+    default List<String> getCreateForeignKeySqls(String schema,String structureTablename,String createTableName,String tableSuffix,TableInfo tableInfo){
+        return new java.util.ArrayList<>();
+    }
 }

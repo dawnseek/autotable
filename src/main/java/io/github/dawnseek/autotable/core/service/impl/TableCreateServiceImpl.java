@@ -11,13 +11,13 @@ import io.github.dawnseek.autotable.core.utils.TableInfoUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -40,14 +40,24 @@ public class TableCreateServiceImpl implements TableCreateService, InitializingB
      */
     @Value("${spring.datasource.schema:}")
     private String tableSchema;
-    @Resource(name = "table-structure-oracle")
+    @Autowired
+    @Qualifier("table-structure-oracle")
     private TableStructureService oracleService;
-    @Resource(name = "table-structure-mysql")
+    @Autowired
+    @Qualifier("table-structure-mysql")
     private TableStructureService mysqlService;
-    @Resource(name = "table-structure-postgresql")
+    @Autowired
+    @Qualifier("table-structure-postgresql")
     private TableStructureService postgresqlService;
-    @Resource(name = "table-structure-guassdb")
+    @Autowired
+    @Qualifier("table-structure-guassdb")
     private TableStructureService guassdbService;
+    @Autowired
+    @Qualifier("table-structure-vastbase")
+    private TableStructureService vastbaseService;
+    @Autowired
+    @Qualifier("table-structure-sqlserver")
+    private TableStructureService sqlserverService;
 
     @Autowired
     private DbTypeHelper dbTypeHelper;
@@ -63,6 +73,8 @@ public class TableCreateServiceImpl implements TableCreateService, InitializingB
     public List<String> createTable(String tableNameExtension, LocalDateTime startTime, LocalDateTime endTime, String referenceTableName) {
         TableInfo tableInfo= TableInfoUtil.getTableInfoByName(tableNameExtension);
         List<String> existsTables = getTableStructureService().getExistsTables(this.tableSchema,tableInfo);
+        Set<String> existsTableNames = new HashSet<>();
+        existsTables.forEach((existTable)->{ existsTableNames.add(existTable.toUpperCase()); });
         String structureTablenameTemp = null;
         if (StringUtil.isBlank(referenceTableName)||"[max]".equals(referenceTableName)) {
             if(null==existsTables|| existsTables.isEmpty()){
@@ -87,7 +99,7 @@ public class TableCreateServiceImpl implements TableCreateService, InitializingB
         while (iterable.hasNext()){
             String suffix=iterable.next();
             String targetTableName= StringUtil.replaceStance(tableNameExtension, suffix);
-            if(existsTables.contains(targetTableName.toUpperCase()) ||existsTables.contains(targetTableName.toLowerCase())){
+            if(existsTableNames.contains(targetTableName.toUpperCase())){
                 iterable.remove();
             }
         }
@@ -138,8 +150,10 @@ public class TableCreateServiceImpl implements TableCreateService, InitializingB
         List<String> allSql=new ArrayList<>();
         allSql.addAll(getTableStructureService().getCreateTableSql(this.tableSchema,referenceTableName,targetTableName,tableSuffix,tableInfo));
         allSql.addAll(getTableStructureService().getCreateIndexSqls(this.tableSchema,referenceTableName,targetTableName,tableSuffix,tableInfo));
+        allSql.addAll(getTableStructureService().getCreateSequenceSqls(this.tableSchema,referenceTableName,targetTableName,tableSuffix,tableInfo));
         allSql.addAll(getTableStructureService().getCreateTriggerSqls(this.tableSchema,referenceTableName,targetTableName,tableSuffix,tableInfo));
         allSql.addAll(getTableStructureService().getCreateUniqueSqls(this.tableSchema,referenceTableName,targetTableName,tableSuffix,tableInfo));
+        allSql.addAll(getTableStructureService().getCreateForeignKeySqls(this.tableSchema,referenceTableName,targetTableName,tableSuffix,tableInfo));
         allSql.forEach((String sql)->{jdbcTemplate.execute(sql);});
         return targetTableName;
     }
@@ -152,6 +166,10 @@ public class TableCreateServiceImpl implements TableCreateService, InitializingB
             return postgresqlService;
         }else if(DbTypeHelper.DB_GUASSDB.equalsIgnoreCase(dbType)){
             return guassdbService;
+        }else if(DbTypeHelper.DB_VASTBASE.equalsIgnoreCase(dbType)){
+            return vastbaseService;
+        }else if(DbTypeHelper.DB_SQLSERVER.equalsIgnoreCase(dbType)){
+            return sqlserverService;
         }else{
             return mysqlService;
         }
@@ -162,8 +180,12 @@ public class TableCreateServiceImpl implements TableCreateService, InitializingB
         try{
             if(StringUtil.isBlank(tableSchema)){
                 String dbType= dbTypeHelper.getDialectDBType();
-                if(DbTypeHelper.DB_POSTGRESQL.equalsIgnoreCase(dbType)||DbTypeHelper.DB_GUASSDB.equalsIgnoreCase(dbType)){
+                if(DbTypeHelper.DB_POSTGRESQL.equalsIgnoreCase(dbType)||DbTypeHelper.DB_GUASSDB.equalsIgnoreCase(dbType)||DbTypeHelper.DB_VASTBASE.equalsIgnoreCase(dbType)){
                     this.tableSchema="public";
+                }else if(DbTypeHelper.DB_SQLSERVER.equalsIgnoreCase(dbType)){
+                    this.tableSchema="dbo";
+                }else if(DbTypeHelper.DB_ORACLE.equalsIgnoreCase(dbType)){
+                    this.tableSchema=jdbcTemplate.queryForObject("SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM DUAL",String.class);
                 }else{
                     this.tableSchema=jdbcTemplate.getDataSource().getConnection().getCatalog();;
                 }

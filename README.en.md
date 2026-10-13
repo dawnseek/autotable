@@ -1,12 +1,17 @@
-# autocratetable
+# autotable
 
 #### Description
 Automatic monthly table creation tool based on springboot
 
 #### Software Architecture
 - Based on Spring Boot, JdbcTemplate is used, and the Spring Boot data source needs to be configured.
-- Based on the latest version of Spring Boot.
-- master branch: Based on springboot latest version
+- Standalone single-module project with no parent dependency, resolvable directly from Maven Central.
+- Dialect-specific SQL (mysql/oracle/postgresql/guassdb/vastbase/sqlserver) is kept inline in the corresponding Service implementation, with no external XML.
+- A single artifact is compatible with both Spring Boot 2.x and 3.x: it only uses Spring APIs common to both, and is compiled to Java 8 bytecode (loadable on JRE 8 and JRE 17).
+
+#### Version compatibility
+- The same jar works with both Spring Boot 2.x and Spring Boot 3.x; no version-specific artifact is needed.
+- The dependency (`spring-boot-starter-data-jpa`) is `provided`, supplied by the consumer according to its own Spring Boot version.
 
 - Basic principle:
 1. The program finds the reference table.
@@ -21,18 +26,25 @@ Database support:
 - mysql
 - oracle
 - postgresql
-- guassdb(not verified)
+- guassdb
+- vastbase
+- sqlserver
 
 #### Installation
 - Add this component as a dependency to your existing system and configure the Spring datasource.
 
 #### configuration
 - pom.xml
+
+The project has been published to the Maven Central Repository and can be directly referenced.
+
+The same version is compatible with both springboot2.x and springboot3.x
+
 ```xml
 <dependency>
     <groupId>io.github.dawnseek</groupId>
     <artifactId>autotable</artifactId>
-    <version>1.5</version>
+    <version>1.6</version>
 </dependency>
 
 ```
@@ -51,12 +63,15 @@ tablecreate:
     onstart: false # Whether to create a table when the system starts. default false
     month-first-day: false # Whether to create a table on the first day of the month. default false
   target:
-    # The table name to be created. can choose the table name with ${yyyyMM}、${yyyyMMdd}、${yyMM}、${yyyy}. 
-    # default use max month table name to reference. 
-    # you can usexxxx_$\{yyyyMM\}:referenceTableName to set up a reference table name. [max] is use max month table . [min] is use min month table .
-    tables: xxxx_$\{yyyyMM\} 
-    # target database type support mysql、oracle、postgresql、guassdb.if null will use spring.jpa.database。
-    # if spring.jpa.database and tablecreate.dbtype is null will use mysql
+    # The table name to be created. can choose the table name with ${yyyyMM}、${yyyyMMdd}、${yyMM}、${yyyy}.
+    # reference table resolution priority: inline in table name (xxxx_$\{yyyyMM\}:referenceTableName) > this reference-table > default max month table
+    tables: xxxx_$\{yyyyMM\}
+    # global reference table name, empty means use the inline config or auto max month table. value may be a concrete table name, or [max]/[min] for max/min month table
+    # reference-table: xxxx_reference
+    reference-table:
+    # target database type support mysql、oracle、postgresql、guassdb、vastbase、sqlserver
+    # resolution priority: tablecreate.dbtype > spring.jpa.database > auto detect from jdbc driver > default mysql
+    # when not configured, the database type is auto-detected from the jdbc driver/connection metadata
   dbtype: 
  
 ```
